@@ -1,0 +1,127 @@
+# Add these two methods to your LibraryGUI class just before the show_borrow_logs method:
+
+def edit_book(self):
+    # Get selected book
+    selected = self.books_tree.selection()
+    if not selected:
+        messagebox.showwarning("Warning", "Please select a book to edit")
+        return
+    
+    # Get book details
+    book_values = self.books_tree.item(selected[0])['values']
+    if not book_values:
+        return
+    
+    # Create dialog for editing
+    dialog = tk.Toplevel(self.root)
+    dialog.title("Edit Book")
+    dialog.geometry("400x350")
+    dialog.resizable(False, False)
+    
+    # Make dialog modal
+    dialog.transient(self.root)
+    dialog.grab_set()
+    
+    # Create main frame with padding
+    main_frame = ttk.Frame(dialog, padding="20 10 20 10")
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Title
+    ttk.Label(main_frame, text="📚 Edit Book Details", 
+             font=('Helvetica', 12, 'bold')).pack(pady=(0,20))
+    
+    # Input fields frame
+    fields_frame = ttk.Frame(main_frame)
+    fields_frame.pack(fill=tk.X, pady=5)
+    
+    # Book details
+    details = {
+        'Title': book_values[0],
+        'Author': book_values[1],
+        'Category': book_values[2],
+        'Total Copies': book_values[4]
+    }
+    
+    variables = {}
+    for label, value in details.items():
+        frame = ttk.Frame(fields_frame)
+        frame.pack(fill=tk.X, pady=5)
+        ttk.Label(frame, text=f"{label}:*", width=15).pack(side=tk.LEFT)
+        var = tk.StringVar(value=value)
+        variables[label] = var
+        ttk.Entry(frame, textvariable=var, width=30).pack(side=tk.LEFT)
+    
+    def submit():
+        try:
+            # Validate input
+            new_title = variables['Title'].get().strip()
+            new_author = variables['Author'].get().strip()
+            new_category = variables['Category'].get().strip()
+            try:
+                new_total = int(variables['Total Copies'].get())
+                if new_total < 1:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Error", "Total copies must be a positive number")
+                return
+            
+            if not all([new_title, new_author, new_category]):
+                messagebox.showerror("Error", "All fields are required")
+                return
+            
+            # Update book
+            success, message = self.library.editBook(
+                book_values[0], new_title, new_author, 
+                new_category, new_total
+            )
+            
+            if success:
+                messagebox.showinfo("Success", message)
+                dialog.destroy()
+                self.show_all_books()  # Refresh book list
+            else:
+                messagebox.showerror("Error", message)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to update book: {str(e)}")
+    
+    # Buttons
+    buttons_frame = ttk.Frame(main_frame)
+    buttons_frame.pack(fill=tk.X, pady=20)
+    ttk.Button(buttons_frame, text="Update", command=submit).pack(side=tk.LEFT, padx=5)
+    ttk.Button(buttons_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    # Center the dialog
+    dialog.update_idletasks()
+    width = dialog.winfo_width()
+    height = dialog.winfo_height()
+    x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+    y = (dialog.winfo_screenheight() // 2) - (height // 2)
+    dialog.geometry(f'{width}x{height}+{x}+{y}')
+
+def remove_book(self):
+    # Get selected book
+    selected = self.books_tree.selection()
+    if not selected:
+        messagebox.showwarning("Warning", "Please select a book to remove")
+        return
+    
+    # Get book details
+    book_values = self.books_tree.item(selected[0])['values']
+    if not book_values:
+        return
+    
+    # Confirm deletion
+    if not messagebox.askyesno("Confirm Remove", 
+        f"Are you sure you want to remove '{book_values[0]}' from the library?"):
+        return
+    
+    try:
+        success, message = self.library.removeBook(book_values[0])
+        if success:
+            messagebox.showinfo("Success", message)
+            self.show_all_books()  # Refresh book list
+        else:
+            messagebox.showerror("Error", message)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to remove book: {str(e)}")
