@@ -2,9 +2,10 @@
 Library Management System GUI
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 from lib import Library, DatabaseConnection
 import mysql.connector
+import excel_utils
 
 class LibraryGUI:
     def __init__(self, root):
@@ -183,6 +184,8 @@ class LibraryGUI:
         ttk.Button(buttons_frame, text="Overdue Books", command=self.show_overdue).pack(side='left', padx=5)
         ttk.Button(buttons_frame, text="Current Borrows", command=self.show_borrowed).pack(side='left', padx=5)
         ttk.Button(buttons_frame, text="Borrow History", command=self.show_borrow_logs).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="Export to Excel", command=self.export_to_excel).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="Import from Excel", command=self.import_from_excel).pack(side='left', padx=5)
 
     # Functionality methods
     def search_books(self):
@@ -1178,6 +1181,43 @@ class LibraryGUI:
             
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
+    def export_to_excel(self):
+        """Export selected database tables to an Excel file (xlsx)."""
+        filepath = filedialog.asksaveasfilename(defaultextension=".xlsx",
+                                                filetypes=[("Excel files", "*.xlsx")],
+                                                title="Save Exported Data As")
+        if not filepath:
+            return
+        try:
+            excel_utils.export_database_to_excel(self.db, filepath)
+            messagebox.showinfo("Export Successful", f"Data exported to {filepath}")
+        except Exception as e:
+            messagebox.showerror("Export Failed", str(e))
+
+    def import_from_excel(self):
+        """Import data from an Excel file (.xlsx)."""
+        filepath = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")],
+                                              title="Select Excel File to Import")
+        if not filepath:
+            return
+        if not messagebox.askyesno("Confirm Import",
+                                   "Importing data may add or update records in the database. Continue?"):
+            return
+        try:
+            excel_utils.import_database_from_excel(self.db, filepath)
+            messagebox.showinfo("Import Successful", f"Data imported from {filepath}")
+            # Refresh UI lists after import
+            try:
+                self.show_all_books()
+            except Exception:
+                pass
+            try:
+                self.refresh_users()
+            except Exception:
+                pass
+        except Exception as e:
+            messagebox.showerror("Import Failed", str(e))
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "Do you want to quit?"):
