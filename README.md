@@ -129,13 +129,13 @@ Run the database setup script:
 ```bash
 py excel_utlils. py
 py fix_users_table. py
-py 
-python setup_database.py
+py fix_database. py
+py setup_database.py
 ```
 
 ### 3. Run the Application
 ```bash
-python lib.py
+python gui.py
 ```
 
 ## 💡 Usage Examples
@@ -211,3 +211,4 @@ Web Development         2025-10-05  2025-10-12  2025-10-11  $0.00
 - Barcode scanning
 
 - Advanced reporting dashboard
+
