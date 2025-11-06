@@ -127,6 +127,9 @@ pip install -r requirements.txt
 ### 2. Database Setup
 Run the database setup script:
 ```bash
+py excel_utlils. py
+py fix_users_table. py
+py 
 python setup_database.py
 ```
 
@@ -206,4 +209,5 @@ Web Development         2025-10-05  2025-10-12  2025-10-11  $0.00
 - Digital library integration
 - Mobile app interface
 - Barcode scanning
+
 - Advanced reporting dashboard
