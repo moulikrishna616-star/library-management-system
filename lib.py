@@ -20,10 +20,13 @@ class DatabaseConnection:
                 host=host,
                 database=database,
                 user=user,
-                password=password
+                password=password,
+                autocommit=True,  # Enable autocommit by default
+                use_pure=True,    # Use pure Python implementation
+                buffered=True     # Use buffered cursors
             )
             if self.connection.is_connected():
-                self.cursor = self.connection.cursor()
+                self.cursor = self.connection.cursor(buffered=True)
                 print("Successfully connected to MySQL database")
                 self.create_tables()
                 return True
@@ -48,18 +51,12 @@ class DatabaseConnection:
             )
             """
             
-            # Create borrowed_books table with due dates
-            borrowed_table = """
-            CREATE TABLE IF NOT EXISTS borrowed_books (
+            # Create book categories table
+            categories_table = """
+            CREATE TABLE IF NOT EXISTS book_categories (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                student_name VARCHAR(255) NOT NULL,
-                book_title VARCHAR(255) NOT NULL,
-                borrowed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                due_date DATE NOT NULL,
-                returned BOOLEAN DEFAULT FALSE,
-                return_date TIMESTAMP NULL,
-                fine_amount DECIMAL(10,2) DEFAULT 0.00,
-                FOREIGN KEY (book_title) REFERENCES books(title)
+                category_name VARCHAR(100) NOT NULL UNIQUE,
+                description TEXT
             )
             """
             
@@ -75,20 +72,43 @@ class DatabaseConnection:
                 status ENUM('active', 'suspended', 'inactive') DEFAULT 'active'
             )
             """
-            
-            # Create book categories table
-            categories_table = """
-            CREATE TABLE IF NOT EXISTS book_categories (
+
+            # Create borrowed_books table with due dates and ON DELETE CASCADE
+            borrowed_table = """
+            CREATE TABLE IF NOT EXISTS borrowed_books (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                category_name VARCHAR(100) NOT NULL UNIQUE,
-                description TEXT
+                student_name VARCHAR(255) NOT NULL,
+                book_title VARCHAR(255) NOT NULL,
+                borrowed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                due_date DATE NOT NULL,
+                returned BOOLEAN DEFAULT FALSE,
+                return_date TIMESTAMP NULL,
+                fine_amount DECIMAL(10,2) DEFAULT 0.00,
+                FOREIGN KEY (book_title) REFERENCES books(title) ON DELETE CASCADE,
+                FOREIGN KEY (student_name) REFERENCES users(username) ON UPDATE CASCADE
+            )
+            """
+
+            # Create book reviews table with proper foreign keys
+            reviews_table = """
+            CREATE TABLE IF NOT EXISTS book_reviews (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                book_title VARCHAR(255) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+                review_text TEXT,
+                review_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (book_title) REFERENCES books(title) ON DELETE CASCADE,
+                FOREIGN KEY (username) REFERENCES users(username) ON UPDATE CASCADE
             )
             """
             
+            # Create tables in the correct order to avoid foreign key issues
             self.cursor.execute(books_table)
-            self.cursor.execute(borrowed_table)
-            self.cursor.execute(users_table)
             self.cursor.execute(categories_table)
+            self.cursor.execute(users_table)
+            self.cursor.execute(borrowed_table)
+            self.cursor.execute(reviews_table)
             self.connection.commit()
             print("Database tables created successfully")
             
@@ -718,6 +738,7 @@ class Library:
     def removeBook(self, title):
         """Remove a book from the library"""
         try:
+            # First check if book exists
             check_query = "SELECT * FROM books WHERE title = %s"
             self.db.cursor.execute(check_query, (title,))
             book = self.db.cursor.fetchone()
@@ -733,13 +754,54 @@ class Library:
             if borrowed_count > 0:
                 return False, "Cannot remove book - some copies are currently borrowed"
             
-            # Delete the book
-            delete_query = "DELETE FROM books WHERE title = %s"
-            self.db.cursor.execute(delete_query, (title,))
-            self.db.connection.commit()
-            return True, "Book successfully removed"
-            
+            try:
+                # Explicitly disable autocommit and handle transaction manually
+                self.db.connection.autocommit = False
+                
+                # First delete any existing reviews
+                self.db.cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                self.db.cursor.execute("DELETE FROM book_reviews WHERE book_title = %s", (title,))
+                
+                # Then delete borrow history
+                self.db.cursor.execute("DELETE FROM borrowed_books WHERE book_title = %s", (title,))
+                
+                # Finally delete the book
+                self.db.cursor.execute("DELETE FROM books WHERE title = %s", (title,))
+                self.db.cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                
+                # Commit all changes
+                self.db.connection.commit()
+                
+                # Re-enable autocommit
+                self.db.connection.autocommit = True
+                
+                return True, "Book successfully removed"
+                
+            except Error as e:
+                print(f"Error during book removal: {str(e)}")  # Debug log
+                # Ensure rollback
+                try:
+                    self.db.connection.rollback()
+                except Error as rollback_error:
+                    print(f"Rollback error: {str(rollback_error)}")  # Debug log
+                
+                # Re-enable foreign key checks and autocommit in case of error
+                try:
+                    self.db.cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                    self.db.connection.autocommit = True
+                except Error as cleanup_error:
+                    print(f"Cleanup error: {str(cleanup_error)}")  # Debug log
+                
+                return False, f"Database error: {str(e)}"
+                
         except Error as e:
+            print(f"Outer error during book removal: {str(e)}")  # Debug log
+            # Final safety cleanup
+            try:
+                self.db.cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
+                self.db.connection.autocommit = True
+            except:
+                pass
             return False, f"Failed to remove book: {str(e)}"
 
     def editBook(self, old_title, new_title, new_author, new_category, new_total_copies):
@@ -900,32 +962,7 @@ class Library:
         except Error as e:
             raise Exception(f"Error generating reports: {e}")
 
-def removeBook(self, title):
-    """Remove a book from the library"""
-    try:
-        check_query = "SELECT * FROM books WHERE title = %s"
-        self.db.cursor.execute(check_query, (title,))
-        book = self.db.cursor.fetchone()
-        
-        if not book:
-            return False, "Book not found"
-            
-        # Check if any copies are borrowed
-        check_borrowed = "SELECT COUNT(*) FROM borrowed_books WHERE book_title = %s AND returned = FALSE"
-        self.db.cursor.execute(check_borrowed, (title,))
-        borrowed_count = self.db.cursor.fetchone()[0]
-        
-        if borrowed_count > 0:
-            return False, "Cannot remove book - some copies are currently borrowed"
-        
-        # Delete the book
-        delete_query = "DELETE FROM books WHERE title = %s"
-        self.db.cursor.execute(delete_query, (title,))
-        self.db.connection.commit()
-        return True, "Book successfully removed"
-        
-    except Error as e:
-        return False, f"Failed to remove book: {str(e)}"
+
 
 def editBook(self, old_title, new_title, new_author, new_category, new_total_copies):
     """Edit book details"""
